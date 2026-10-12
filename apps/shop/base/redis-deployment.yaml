@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-redis
+  labels:
+    app: shop-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shop-redis
+  template:
+    metadata:
+      labels:
+        app: shop-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi

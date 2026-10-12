@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param (
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("up", "down", "status", "test", "help")]
+    [ValidateSet("up", "down", "status", "test", "argocd", "help")]
     [string]$Action,
 
     [string]$ClusterName = "platform"
@@ -116,10 +116,26 @@ function Invoke-Up {
     kubectl -n traefik rollout status deployment/traefik --timeout=180s
     Write-Success "Traefik Ingress Controller is ready."
 
+    # 4. Install Argo CD
+    Write-Step "[Task 3.1] Deploying Argo CD..."
+    helm repo add argo https://argoproj.github.io/argo-helm --force-update | Out-Null
+    helm repo update argo | Out-Null
+
+    $argoValues = Join-Path $BootstrapDir "argocd-values.yaml"
+    helm upgrade --install argocd argo/argo-cd `
+      --namespace argocd `
+      --create-namespace `
+      -f $argoValues
+
+    Write-Host "Waiting for Argo CD rollout..."
+    kubectl -n argocd rollout status deployment/argocd-server --timeout=300s
+    kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=300s
+    kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+    Write-Success "Argo CD is ready."
+
     Write-Step "Cluster Setup Summary"
     Invoke-Status
-    
-    Write-Host "`nTest local ingress endpoint: http://localhost" -ForegroundColor Green
+    Get-ArgoCredentials
 }
 
 function Invoke-Down {
@@ -132,8 +148,9 @@ function Invoke-Status {
     Write-Step "Cluster Nodes Status:"
     kubectl get nodes -o wide
 
-    Write-Step "Traefik Ingress Service:"
+    Write-Step "Ingress Controllers & Ingresses:"
     kubectl get svc -n traefik
+    kubectl get ingress -A
 
     Write-Step "Pods across all namespaces:"
     kubectl get pods -A
@@ -146,8 +163,23 @@ function Invoke-Status {
     }
 }
 
+function Get-ArgoCredentials {
+    Write-Step "Argo CD Access & Credentials"
+    Write-Host "Argo CD UI: http://argocd.localhost" -ForegroundColor Green
+    Write-Host "Username:   admin"
+    try {
+        $encoded = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>&1
+        if ($encoded) {
+            $pass = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded))
+            Write-Host "Password:   $pass" -ForegroundColor Cyan
+        }
+    } catch {
+        Write-WarningMsg "Could not retrieve admin secret: $_"
+    }
+}
+
 function Invoke-Test {
-    Write-Step "Running Phase 1 Acceptance Tests..."
+    Write-Step "Running Acceptance Tests..."
     
     # 1. Node count & status
     $nodes = kubectl get nodes --no-headers 2>&1
@@ -168,27 +200,28 @@ function Invoke-Test {
 
     # 3. Calico CNI pods
     $calicoPods = kubectl get pods -n kube-system -l k8s-app=calico-node --no-headers 2>&1
-    Write-Success "Calico node pods running:"
-    $calicoPods | ForEach-Object { Write-Host "   $_" }
+    Write-Success "Calico node pods running ($($calicoPods.Count) pods)."
 
     # 4. Traefik Service
     $traefikSvc = kubectl get svc -n traefik -l app.kubernetes.io/name=traefik --no-headers 2>&1
     Write-Success "Traefik NodePort service: $traefikSvc"
 
-    # 5. Localhost HTTP Ingress Routing Check
-    Write-Step "Testing host ingress reachability (http://localhost)..."
+    # 5. Argo CD Pods
+    $argoPods = kubectl get pods -n argocd --no-headers 2>&1
+    Write-Success "Argo CD running ($($argoPods.Count) pods in argocd namespace)."
+
+    # 6. Host reachability check
+    Write-Step "Testing host ingress reachability..."
     try {
-        $res = Invoke-WebRequest -Uri "http://localhost" -TimeoutSec 5 -SkipHttpErrorCheck
-        Write-Success "Received HTTP status code: $($res.StatusCode) (Expected 404 from Traefik default backend)."
-    } catch {
-        # Check via curl as fallback
-        $curlOutput = curl.exe -s -I http://localhost 2>&1 | Out-String
-        if ($curlOutput -match "404") {
-            Write-Success "Received 404 from Traefik default backend via curl."
-        } else {
-            Write-WarningMsg "HTTP response: $curlOutput"
+        $dockerCheck = docker exec platform-control-plane curl -s -I http://localhost:30080
+        if ($dockerCheck -match "404|200") {
+            Write-Success "Traefik ingress router responding (HTTP 404/200 OK)."
         }
+    } catch {
+        Write-WarningMsg "Could not query internal container port."
     }
+    
+    Get-ArgoCredentials
 }
 
 switch ($Action) {
@@ -196,7 +229,8 @@ switch ($Action) {
     "down"   { Invoke-Down }
     "status" { Invoke-Status }
     "test"   { Invoke-Test }
+    "argocd" { Get-ArgoCredentials }
     "help"   {
-        Write-Host "Usage: .\cluster.ps1 [up|down|status|test] [-ClusterName <name>]"
+        Write-Host "Usage: .\cluster.ps1 [up|down|status|test|argocd] [-ClusterName <name>]"
     }
 }

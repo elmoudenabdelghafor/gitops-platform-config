@@ -1,0 +1,16 @@
+# Argo CD Helm Chart Values for Kind Cluster
+global:
+  domain: argocd.localhost
+
+configs:
+  params:
+    server.insecure: true
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: "traefik"
+    hostname: argocd.localhost
+    pathType: Prefix
+    paths:
+      - /

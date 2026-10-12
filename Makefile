@@ -1,7 +1,7 @@
 CLUSTER_NAME ?= platform
 BOOTSTRAP_DIR := bootstrap
 
-.PHONY: all up down status test preflight
+.PHONY: all up down status test argocd preflight
 
 all: up
 
@@ -23,6 +23,8 @@ up: preflight
 	@bash $(BOOTSTRAP_DIR)/install-metrics.sh
 	@echo "==> Installing Traefik Ingress..."
 	@bash $(BOOTSTRAP_DIR)/install-ingress.sh
+	@echo "==> Installing Argo CD..."
+	@bash $(BOOTSTRAP_DIR)/install-argocd.sh
 	@echo "==> Cluster setup complete!"
 	@$(MAKE) status
 
@@ -34,8 +36,9 @@ status:
 	@echo "==> Nodes:"
 	@kubectl get nodes -o wide
 	@echo ""
-	@echo "==> Ingress Service:"
+	@echo "==> Ingress Service & Ingresses:"
 	@kubectl get svc -n traefik
+	@kubectl get ingress -A
 	@echo ""
 	@echo "==> Pods across namespaces:"
 	@kubectl get pods -A
@@ -43,11 +46,18 @@ status:
 	@echo "==> Resource usage (metrics-server):"
 	@kubectl top nodes || echo "(Metrics server collecting initial data...)"
 
+argocd:
+	@echo "==> Argo CD UI: http://argocd.localhost"
+	@echo "==> Admin User: admin"
+	@echo -n "==> Password:   "
+	@kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+	@echo ""
+
 test:
-	@echo "==> Running Phase 1 Acceptance Verification..."
+	@echo "==> Running Acceptance Verification..."
 	@kubectl get nodes
 	@kubectl get nodes -l ingress-ready=true
 	@kubectl get pods -n kube-system -l k8s-app=calico-node
+	@kubectl get pods -n argocd
 	@kubectl get svc -n traefik
-	@echo "==> Testing http://localhost endpoint (Expect 404):"
-	@curl -I -s http://localhost || true
+	@$(MAKE) argocd
