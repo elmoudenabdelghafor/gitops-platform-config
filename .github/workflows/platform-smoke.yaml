@@ -1,0 +1,42 @@
+name: platform-smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Bootstrap Kind Cluster Smoke Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create Kind Cluster
+        uses: helm/kind-action@v1.12.0
+        with:
+          config: bootstrap/kind.yaml
+          cluster_name: platform
+          wait: 0s
+
+      - name: Install Calico CNI
+        run: |
+          chmod +x bootstrap/*.sh
+          ./bootstrap/install-cni.sh
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
+      - name: Install Metrics Server
+        run: |
+          ./bootstrap/install-metrics.sh
+
+      - name: Install Traefik Ingress
+        run: |
+          ./bootstrap/install-ingress.sh
+
+      - name: Smoke Checks & Node Status
+        run: |
+          kubectl get nodes -o wide
+          kubectl -n kube-system rollout status daemonset/calico-node --timeout=180s
+          kubectl -n traefik rollout status deployment/traefik --timeout=180s
+          kubectl get pods -A
