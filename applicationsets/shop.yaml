@@ -16,7 +16,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/OWNER/platform-config
+        repoURL: https://github.com/elmoudenabdelghafor/gitops-platform-config
         targetRevision: main
         path: "apps/shop/overlays/{{env}}"
       destination:
