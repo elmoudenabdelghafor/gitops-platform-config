@@ -4,22 +4,29 @@ kind: Kustomization
 namespace: shop-dev
 
 resources:
-  - ../../base
+- ../../base
 
 patches:
-  - target:
-      kind: Ingress
-      name: shop-ingress
-    patch: |-
-      - op: replace
-        path: /spec/rules/0/host
-        value: dev.shop.localhost
-  - target:
-      kind: Deployment
-      name: shop-api
-    patch: |-
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: ENABLE_FAULT_INJECTION
-          value: "true"
+- patch: |-
+    - op: replace
+      path: /spec/rules/0/host
+      value: dev.shop.localhost
+  target:
+    kind: Ingress
+    name: shop-ingress
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: ENABLE_FAULT_INJECTION
+        value: "true"
+  target:
+    kind: Deployment
+    name: shop-api
+images:
+- name: shop-api
+  newName: ghcr.io/elmoudenabdelghafor/shop-api
+  newTag: 62c6f1951c832f9c87990c77f96f6bc2b1bda399
+- name: shop-frontend
+  newName: ghcr.io/elmoudenabdelghafor/shop-frontend
+  newTag: 62c6f1951c832f9c87990c77f96f6bc2b1bda399
