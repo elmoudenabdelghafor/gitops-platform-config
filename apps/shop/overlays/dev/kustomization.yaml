@@ -26,7 +26,7 @@ patches:
 images:
 - name: shop-api
   newName: ghcr.io/elmoudenabdelghafor/shop-api
-  newTag: 62c6f1951c832f9c87990c77f96f6bc2b1bda399
+  newTag: d4cf8f0fc594571639897e0a6c9690fb180621cd
 - name: shop-frontend
   newName: ghcr.io/elmoudenabdelghafor/shop-frontend
-  newTag: 62c6f1951c832f9c87990c77f96f6bc2b1bda399
+  newTag: d4cf8f0fc594571639897e0a6c9690fb180621cd
