@@ -9,6 +9,7 @@ resources:
   - redis-deployment.yaml
   - redis-service.yaml
   - ingress.yaml
+  - service-monitors.yaml
 
 images:
   - name: shop-api
