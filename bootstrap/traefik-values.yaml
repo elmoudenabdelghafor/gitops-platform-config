@@ -11,6 +11,20 @@ ports:
     nodePort: 30443
     exposedPort: 443
 
+providers:
+  kubernetesIngress:
+    publishedService:
+      enabled: false
+    ingressEndpoint:
+      ip: "127.0.0.1"
+
+metrics:
+  prometheus:
+    service:
+      enabled: true
+    serviceMonitor:
+      enabled: true
+
 nodeSelector:
   ingress-ready: "true"
 

@@ -133,9 +133,31 @@ function Invoke-Up {
     kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
     Write-Success "Argo CD is ready."
 
+    # 5. Install Observability Stack (Phase 4)
+    Write-Step "[Task 4.1] Deploying Prometheus, Grafana & Loki Stack..."
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update | Out-Null
+    helm repo add grafana https://grafana.github.io/helm-charts --force-update | Out-Null
+    helm repo update prometheus-community grafana | Out-Null
+
+    $promValues = Join-Path $RootDir "monitoring\kube-prometheus-stack-values.yaml"
+    helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack `
+      --namespace monitoring `
+      --create-namespace `
+      -f $promValues
+
+    $lokiValues = Join-Path $RootDir "monitoring\loki-values.yaml"
+    helm upgrade --install loki grafana/loki-stack `
+      --namespace monitoring `
+      -f $lokiValues
+
+    Write-Host "Waiting for Prometheus and Grafana rollout..."
+    kubectl -n monitoring rollout status deployment/kube-prometheus-stack-grafana --timeout=300s
+    kubectl -n monitoring rollout status statefulset/prometheus-kube-prometheus-stack-prometheus --timeout=300s
+    Write-Success "Observability Stack is ready."
+
     Write-Step "Cluster Setup Summary"
     Invoke-Status
-    Get-ArgoCredentials
+    Get-AccessUrls
 }
 
 function Invoke-Down {
@@ -163,19 +185,27 @@ function Invoke-Status {
     }
 }
 
-function Get-ArgoCredentials {
-    Write-Step "Argo CD Access & Credentials"
-    Write-Host "Argo CD UI: http://argocd.localhost" -ForegroundColor Green
-    Write-Host "Username:   admin"
+function Get-AccessUrls {
+    Write-Step "Platform Access & Credentials"
+    Write-Host "Argo CD UI:        http://argocd.localhost" -ForegroundColor Green
+    Write-Host "Username:          admin"
     try {
         $encoded = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>&1
         if ($encoded) {
             $pass = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded))
-            Write-Host "Password:   $pass" -ForegroundColor Cyan
+            Write-Host "Password:          $pass" -ForegroundColor Cyan
         }
     } catch {
         Write-WarningMsg "Could not retrieve admin secret: $_"
     }
+
+    Write-Host ""
+    Write-Host "Grafana UI:        http://grafana.localhost" -ForegroundColor Green
+    Write-Host "Username:          admin"
+    Write-Host "Password:          admin" -ForegroundColor Cyan
+    Write-Host "Prometheus UI:     http://prometheus.localhost" -ForegroundColor Green
+    Write-Host "Alertmanager UI:   http://alertmanager.localhost" -ForegroundColor Green
+    Write-Host "Shop Dev Frontend: http://dev.shop.localhost" -ForegroundColor Green
 }
 
 function Invoke-Test {
@@ -210,7 +240,11 @@ function Invoke-Test {
     $argoPods = kubectl get pods -n argocd --no-headers 2>&1
     Write-Success "Argo CD running ($($argoPods.Count) pods in argocd namespace)."
 
-    # 6. Host reachability check
+    # 6. Monitoring Pods
+    $monitoringPods = kubectl get pods -n monitoring --no-headers 2>&1
+    Write-Success "Monitoring Stack running ($($monitoringPods.Count) pods in monitoring namespace)."
+
+    # 7. Host reachability checks
     Write-Step "Testing host ingress reachability..."
     try {
         $dockerCheck = docker exec platform-control-plane curl -s -I http://localhost:30080
@@ -220,8 +254,24 @@ function Invoke-Test {
     } catch {
         Write-WarningMsg "Could not query internal container port."
     }
+
+    # 8. Service endpoints check
+    try {
+        $grafanaCheck = Invoke-WebRequest -Uri "http://localhost/" -Headers @{ Host = "grafana.localhost" } -UseBasicParsing -TimeoutSec 3
+        if ($grafanaCheck.StatusCode -eq 200) { Write-Success "Grafana Ingress reachable: HTTP 200 OK" }
+    } catch { Write-WarningMsg "Grafana ingress check failed: $_" }
+
+    try {
+        $promCheck = Invoke-WebRequest -Uri "http://localhost/" -Headers @{ Host = "prometheus.localhost" } -UseBasicParsing -TimeoutSec 3
+        if ($promCheck.StatusCode -eq 200) { Write-Success "Prometheus Ingress reachable: HTTP 200 OK" }
+    } catch { Write-WarningMsg "Prometheus ingress check failed: $_" }
+
+    try {
+        $argoCheck = Invoke-WebRequest -Uri "http://localhost/" -Headers @{ Host = "argocd.localhost" } -UseBasicParsing -TimeoutSec 3
+        if ($argoCheck.StatusCode -eq 200) { Write-Success "Argo CD Ingress reachable: HTTP 200 OK" }
+    } catch { Write-WarningMsg "Argo CD ingress check failed: $_" }
     
-    Get-ArgoCredentials
+    Get-AccessUrls
 }
 
 switch ($Action) {
@@ -229,8 +279,9 @@ switch ($Action) {
     "down"   { Invoke-Down }
     "status" { Invoke-Status }
     "test"   { Invoke-Test }
-    "argocd" { Get-ArgoCredentials }
+    "urls"   { Get-AccessUrls }
+    "argocd" { Get-AccessUrls }
     "help"   {
-        Write-Host "Usage: .\cluster.ps1 [up|down|status|test|argocd] [-ClusterName <name>]"
+        Write-Host "Usage: .\cluster.ps1 [up|down|status|test|urls|argocd] [-ClusterName <name>]"
     }
 }
